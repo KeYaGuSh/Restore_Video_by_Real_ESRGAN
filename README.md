@@ -21,7 +21,7 @@ It is able to achieve the repair of both realistic videos and anime videos.
 1. Clone repo
 
     ```bash
-    git clone https://github.com/KYGS/Restore_Video_by_Real_ESRGAN.git
+    git clone https://github.com/KeYaGuSh/Restore_Video_by_Real_ESRGAN.git
     cd Restore_Video_by_Real_ESRGAN
     ```
 
