@@ -43,13 +43,22 @@ It is able to achieve the repair of both realistic videos and anime videos.
 3. Run
 
     ```bash
-    ./python video_restoration.py
+    python video_restoration.py
     ```
+
 4. Models
     
     Two models are included.
         1.RealESRGAN_x4plus(for realistic video)
         2.realesr-animevideov3(for anime video)
+
+## Attention
+
+    It can only restore mp4 videos!!!
+    If the format of your videos is not mp4, you can use the video format converter to convert the video format.
+    ```bash
+    python video_format_converter.py
+    ```
 
 ## Contact
 
