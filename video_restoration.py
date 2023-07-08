@@ -166,7 +166,7 @@ if __name__ == '__main__':
     if len(files) == 0:
         print('This folder seems to be empty.')
     elif len(files) == 1:
-        choice = easygui.buttonbox(title='Attention', msg='Do you need to split '+files[0]+' ?', choices=['Yes', 'No'])
+        choice = easygui.buttonbox(title='Attention', msg='Do you need to restore '+files[0]+' ?', choices=['Yes', 'No'])
         if choice == 'Yes':
             input_files = files
     else:
