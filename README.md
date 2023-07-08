@@ -51,6 +51,6 @@ It is able to achieve the repair of both realistic videos and anime videos.
         1.RealESRGAN_x4plus(for realistic video)
         2.realesr-animevideov3(for anime video)
 
-## 📧 Contact
+## Contact
 
 If you have any question, please email '2935926294@qq.com'.
