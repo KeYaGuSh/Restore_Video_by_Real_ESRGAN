@@ -54,11 +54,9 @@ It is able to achieve the repair of both realistic videos and anime videos.
 
 ## Attention
 
-    ```bash
     # It can only restore mp4 videos!!!
     # If the format of your videos is not mp4, you can use the video format converter to convert the video format.
     python video_format_converter.py
-    ```
 
 ## Contact
 
