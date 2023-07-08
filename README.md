@@ -14,7 +14,7 @@ It is able to achieve the repair of both realistic videos and anime videos.
 
 #### Bilibili
 
-- [Real-ESRGAN Native Video Demo](https://www.bilibili.com/video/BV1ja41117zb)
+- [Real-ESRGAN Native Video Demo](https://www.bilibili.com/video/BV17V4y1h7KW/)
 
 ## Installation
 
