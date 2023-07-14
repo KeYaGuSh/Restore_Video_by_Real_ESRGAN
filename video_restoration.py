@@ -10,40 +10,25 @@ from basicsr.archs.rrdbnet_arch import RRDBNet
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
 from realesrgan.utils import RealESRGANer
 from tqdm import tqdm
+from threading import Thread
 
 
 
-def split(input_video, temp_path):
+def get_information(input_video):
 
     videoCapture = cv2.VideoCapture(input_video)
-    fps = videoCapture.get(cv2.CAP_PROP_FPS)
+    fps = float(videoCapture.get(cv2.CAP_PROP_FPS))
     frames = int(videoCapture.get(cv2.CAP_PROP_FRAME_COUNT))
-    source_file = input_video
-    cap = cv2.VideoCapture(source_file)
-    video_name = input_video.split('.')[0].split('\\')[-1]
+    width = int(videoCapture.get(cv2.CAP_PROP_FRAME_WIDTH)) * 4
+    height = int(videoCapture.get(cv2.CAP_PROP_FRAME_HEIGHT)) * 4
+    video_name = input_video[:-1-len(input_video.split('.')[-1])].split('\\')[-1]
     images_path = temp_path + video_name
-    folder = os.path.exists(images_path)
-    if not folder:
-        os.makedirs(images_path)
-    print('Video ', video_name, ' is being processed')
 
-    print('Splitting...')
-    for i in tqdm(range(0, frames)):
-        if cap.grab():
-            flag, frame = cap.retrieve()
-            if not flag:
-                continue
-            else:
-                savePath = images_path + '\\' + str(i+1).zfill(8) + ".jpg"
-                cv2.imencode('.jpg', frame)[1].tofile(savePath)
-        else:
-            break
-    print('Complete the split')
-
-    return images_path, video_name, fps
+    return video_name, images_path, fps, frames, width, height
 
 
-def restore(input, model_name, output_path, face_enhance, gpu_id):
+
+def load_model(model_name, gpu_id, face_enhance):
 
     if model_name == 'RealESRGAN_x4plus':  # x4 RRDBNet model
         model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
@@ -53,7 +38,6 @@ def restore(input, model_name, output_path, face_enhance, gpu_id):
         netscale = 4
     model_path = os.path.join('weights', model_name + '.pth')
 
-    print('Restoring...')
     upsampler = RealESRGANer(scale=netscale,
                              model_path=model_path,
                              dni_weight=None,
@@ -63,6 +47,7 @@ def restore(input, model_name, output_path, face_enhance, gpu_id):
                              pre_pad=0,
                              half=True,
                              gpu_id=gpu_id)
+
     if face_enhance:  # Use GFPGAN for face enhancement
         from gfpgan import GFPGANer
         face_enhancer = GFPGANer(
@@ -71,78 +56,129 @@ def restore(input, model_name, output_path, face_enhance, gpu_id):
             arch='clean',
             channel_multiplier=2,
             bg_upsampler=upsampler)
-    os.makedirs(output_path, exist_ok=True)
-    paths = sorted(glob.glob(os.path.join(input, '*')))
-    for path in tqdm(paths):
-        imgname, extension = os.path.splitext(os.path.basename(path))
-        img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
-        if len(img.shape) == 3 and img.shape[2] == 4:
-            img_mode = 'RGBA'
-        else:
-            img_mode = None
-        try:
-            if face_enhance:
-                _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
+    else:
+        face_enhancer = None
+
+    return upsampler, face_enhancer
+
+
+def video_split(input_video, temp_path, video_name, images_path, frames):
+
+    global done
+    cap = cv2.VideoCapture(input_video)
+    folder = os.path.exists(images_path)
+    if not folder:
+        os.makedirs(images_path)
+
+    for i in tqdm(range(0, frames), desc='Splitting'):
+        if cap.grab():
+            flag, frame = cap.retrieve()
+            if not flag:
+                continue
             else:
-                output, _ = upsampler.enhance(img, outscale=4)
-        except RuntimeError as error:
-            print('Error', error)
-            print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
+                savePath = images_path + '\\' + str(i+1).zfill(8) + ".jpg"
+                cv2.imencode('.jpg', frame)[1].tofile(savePath)
+                done['split'] = i + 1
         else:
-            extension = extension[1:]
-            if img_mode == 'RGBA':  # RGBA images should be saved in png format
-                extension = 'png'
-            save_path = os.path.join(output_path, f'{imgname}.{extension}')
-            cv2.imwrite(save_path, output)
-    print('Complete the restoration')
+            break
 
 
 
-def integrate(input_path, temp_path, video_name, fps):
-    inputs = []
-    for root ,dirs, files in os.walk(input_path):
-        for file in files:
-            inputs.append(input_path + '\\' + file)
+def restore(input, output_path, face_enhance, frames, upsampler, face_enhancer):
 
-    print('Integrating...')
-    img = cv2.imread(inputs[0])
-    height, width = img.shape[:2]
-    save_path = temp_path + video_name + '_restored' + '.mp4'
+    global done
+    os.makedirs(output_path, exist_ok=True)
+    with tqdm(range(0, frames), desc='Restoring') as tbar:
+        for i in tbar:
+            while True:
+                paths = sorted(glob.glob(os.path.join(input, '*')))
+                if (paths and i+1 < done['split']) or done['split'] == frames:
+                    path = paths[0]
+                    imgname, extension = os.path.splitext(os.path.basename(path))
+                    img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+                    if len(img.shape) == 3 and img.shape[2] == 4:
+                        img_mode = 'RGBA'
+                    else:
+                        img_mode = None
+                    try:
+                        if face_enhance:
+                            _, _, output = face_enhancer.enhance(img, has_aligned=False, only_center_face=False, paste_back=True)
+                        else:
+                            output, _ = upsampler.enhance(img, outscale=4)
+                    except RuntimeError as error:
+                        print('Error', error)
+                        print('If you encounter CUDA out of memory, try to set --tile with a smaller number.')
+                    else:
+                        extension = extension[1:]
+                        if img_mode == 'RGBA':  # RGBA images should be saved in png format
+                            extension = 'png'
+                        save_path = os.path.join(output_path, f'{imgname}.{extension}')
+                        cv2.imwrite(save_path, output)
+                    os.remove(path)
+                    done['restore'] = i + 1
+                    break
+
+
+
+def integrate(input_path, temp_path, video_name, fps, frames, save_path, width, height):
+
+    global done
     video = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc('D', 'I', 'V', 'X'), fps, (width, height))
-    for i in tqdm(range(1,len(inputs))):
-        img = cv2.imread(inputs[i-1])     
-        img = cv2.resize(img, (width, height))
-        video.write(img)
+    with tqdm(range(0, frames), desc='Integrating') as tbar:
+        for i in tbar:
+            while True:
+                paths = sorted(glob.glob(os.path.join(input_path, '*')))
+                if (paths and i+1 < done['restore']) or done['restore'] == frames:
+                    path = paths[0]
+                    img = cv2.imread(path)     
+                    img = cv2.resize(img, (width, height))
+                    video.write(img)
+                    os.remove(path)
+                    break
     video.release()
-    print('Complete the integtation')
-
-    return save_path
 
 
 
-def audio_split_integrate(temp_path, video_name, audio_source, audio_integrated_to, output_path):
+def audio_split(audio_path, audio_source):
 
-    print('Splitting audio...')
     audio = moviepy.editor.VideoFileClip(audio_source)
-    audio.audio.write_audiofile(temp_path + video_name + '.mp3')
-    audio = moviepy.editor.AudioFileClip(temp_path + video_name + '.mp3')
-    print('Complete the split')
+    audio.audio.write_audiofile(audio_path)
 
-    print('Integrate audio...')
+
+
+def audio_integrate(audio_integrated_to, video_name, output_path, audio_path):
+
+    audio = moviepy.editor.AudioFileClip(audio_path)
     video = moviepy.editor.VideoFileClip(audio_integrated_to)
     video = video.set_audio(audio)
     video.write_videofile(output_path + '\\' + video_name + '_complete.mp4')
-    print('Complete the integration')
 
 
 
-def video_restore(input_video, output_path, temp_path, model_name, face_enhance, gpu_id):
+def video_restore(input_video, output_path, temp_path, model_name, face_enhance, gpu_id, upsampler, face_enhancer):
 
-    images_path, video_name, fps = split(input_video, temp_path)
+    video_name, images_path, fps, frames, width, height = get_information(input_video)
     output = images_path + '_restored\\'
-    restore(images_path, model_name, output, face_enhance, gpu_id)
-    save_path = integrate(output, temp_path, video_name, fps)
-    audio_split_integrate(temp_path, video_name, input_video, save_path, output_path)
+    save_path = temp_path + video_name + '_restored' + '.mp4'
+    audio_path = temp_path + video_name + '.mp3'
+    print('Video ', video_name, ' is being processed')
+    audio_split_thread = Thread(target=audio_split, args=(audio_path, input_video))
+    video_split_thread = Thread(target=video_split, args=(input_video, temp_path, video_name, images_path, frames))
+    restore_thread = Thread(target=restore, args=(images_path, output, face_enhance, frames, upsampler, face_enhancer))
+    integrate_thread = Thread(target=integrate, args=(output, temp_path, video_name, fps, frames, save_path, width, height))
+    audio_split_thread.start()
+    print('Audio split thread start')
+    video_split_thread.start()
+    print('Video split thread start')
+    restore_thread.start()
+    print('Restore thread start')
+    integrate_thread.start()
+    print('Integrate thread start')
+    audio_split_thread.join()
+    video_split_thread.join()
+    restore_thread.join()
+    integrate_thread.join()
+    audio_integrate(save_path, video_name, output_path, audio_path)
 
     print('Temp removing...')
     shutil.rmtree(temp_path, ignore_errors=False, onerror=None)
@@ -157,6 +193,8 @@ if __name__ == '__main__':
     gpus_device_id = {}
     inputs = []
     errors = []
+    input_files = []
+    done = {'split':0, 'restore':0}
 
     input_path = easygui.diropenbox(title='Attention', msg='Please choose the folder(only mp4 videos are available).')
     print('input_path : ', input_path)
@@ -204,10 +242,12 @@ if __name__ == '__main__':
             gpu_id = None
         print('gpu_id : ', gpu_id, '\n')
 
+    upsampler, face_enhancer = load_model(model_name, gpu_id, face_enhance)
+
     if inputs:
         for video in inputs:
             try:
-                video_restore(video, output_path, temp_path, model_name, face_enhance, gpu_id)
+                video_restore(video, output_path, temp_path, model_name, face_enhance, gpu_id, upsampler, face_enhancer)
             except:
                 errors.append(video.split('\\')[-1])
         if errors:

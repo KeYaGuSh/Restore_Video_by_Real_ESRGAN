@@ -34,7 +34,7 @@ if inputs:
     for video in inputs:
         try:
             source_file = video
-            sink_file = outputs + files[index].split('.')[0] + '.mp4'
+            sink_file = outputs + files[index][:-1-len(files[index].split('.')[-1])] + '.mp4'
             ff = ffmpy.FFmpeg(executable='D:/PROGRAM/Python/Lib/site-packages/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe',
                               inputs = {source_file: None},
                               outputs = {sink_file: None}).run()
